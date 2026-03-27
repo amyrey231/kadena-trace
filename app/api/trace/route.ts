@@ -13,6 +13,7 @@ interface CyberNode {
     txCount?: number;
     volume: string;
     firstSeen?: string;
+    totalFound?: number; // Added to pass real counts to frontend
   };
 }
 
@@ -83,12 +84,20 @@ export async function GET(request: Request) {
       }
 
       const totalKdaVolume = data.reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0).toFixed(2);
+      
+      // Calculate true connected Kadena wallets
+      const uniqueKdaInteractions = new Set(
+        data.map(tx => tx.senderAccount?.toLowerCase() === rootId ? tx.receiverAccount?.toLowerCase() : tx.senderAccount?.toLowerCase())
+            .filter(addr => addr && addr !== rootId)
+      );
 
       nodes.push({
         id: rootId, type: 'cyber', position: { x: 50, y: 250 },
         data: { 
-          role: 'Kadena Target', address: wallet, risk: behavioralRisk, 
-          flags: riskFlags, txCount: data.length, volume: totalKdaVolume, firstSeen: 'Community Node'
+          role: behavioralRisk === 'critical' ? 'High-Risk Target' : 'Standard Wallet', 
+          address: wallet, risk: behavioralRisk, 
+          flags: riskFlags, txCount: data.length, volume: totalKdaVolume, firstSeen: 'Community Node',
+          totalFound: uniqueKdaInteractions.size // Pass true count
         }
       });
 
@@ -99,9 +108,9 @@ export async function GET(request: Request) {
           const row = index % 4;
           nodes.push({
             id: interacted, type: 'cyber', position: { x: 450 + (col * 350), y: 100 + (row * 150) },
-            data: { role: 'KDA Interaction', address: interacted, risk: behavioralRisk === 'critical' ? 'critical' : 'warning', volume: `${tx.amount}` }
+            data: { role: 'Connected Wallet', address: interacted, risk: behavioralRisk === 'critical' ? 'warning' : 'safe', volume: `${tx.amount}` }
           });
-          edges.push({ id: `e-k-${index}`, source: rootId, target: interacted, animated: behavioralRisk === 'critical', style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#ef4444' } });
+          edges.push({ id: `e-k-${index}`, source: rootId, target: interacted, animated: behavioralRisk === 'critical', style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#34d399' } });
         }
       });
 
@@ -114,14 +123,13 @@ export async function GET(request: Request) {
       const countRes = await fetch(countUrl);
       const countData = await countRes.json();
       
-      // REINFORCED HEX CONVERSION: Etherscan returns hex (e.g., "0x539")
       const hexCount = countData.result;
       const totalTransactions = typeof hexCount === 'string' && hexCount.startsWith('0x') 
         ? parseInt(hexCount, 16) 
         : 0;
 
-      // 2. Fetch recent transaction list for behavioral analysis and mapping
-      const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
+      // 2. Fetch recent transaction list (Increased offset to 100 for better data sampling!)
+      const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=100&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
       const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const rawData = await response.json();
 
@@ -129,46 +137,76 @@ export async function GET(request: Request) {
         const txs: EthTx[] = rawData.result;
         const totalVolume = txs.reduce((acc, tx) => acc + (Number(tx.value) / 1e18), 0).toFixed(4);
 
+        // 3. Calculate REAL unique connections from the fetched list
+        const allInteractedAddresses = new Set(
+          txs.map(tx => tx.to?.toLowerCase() === rootId ? tx.from?.toLowerCase() : tx.to?.toLowerCase())
+             .filter(addr => addr && addr !== rootId)
+        );
+        const totalFoundCount = allInteractedAddresses.size;
+
         const knownSafeEntities = [
           "0x28c6c06298d514db089934071355e5743bf21d60", "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
           "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae", "0x000000000000000000000000000000000000dead",
-          "0x0000000000000000000000000000000000000000"
+          "0x0000000000000000000000000000000000000000",
+          "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", // Uniswap Router
+          "0xd8da6bf26964af9d7eed9e03e53415d37aa96045", // Vitalik Buterin
+          "0x00000000219ab540356cbb839cbe05303d7705fa"  // ETH Deposit Contract
         ];
 
+        // --- UPDATED BEHAVIORAL CHECKS ---
         if (knownSafeEntities.includes(rootId)) {
             behavioralRisk = 'safe';
-            riskFlags.push("Verified Safe Entity (Behavioral Checks Bypassed)");
+            riskFlags.push("Verified Public/Safe Entity (Checks Bypassed)");
         } else {
-            // Behavioral Checks
             const firstTx = txs[0];
             const secondTx = txs[1];
+            
+            // Relaxed Flash Gas
             if (firstTx && secondTx) {
-                if (firstTx.from.toLowerCase() === rootId && secondTx.to.toLowerCase() === rootId && Number(secondTx.value) < 50000000000000000) { 
+                if (firstTx.from.toLowerCase() === rootId && secondTx.to.toLowerCase() === rootId && Number(secondTx.value) < 1000000000000000) { 
                     behavioralRisk = 'critical';
                     riskFlags.push("Flash Gas Siphoning (Compromise Signature)");
                 }
             }
-            if (txs.length >= 5) {
-                const burst = txs.slice(0, 5);
-                const burstTime = Math.abs(Number(burst[0].timeStamp) - Number(burst[4].timeStamp));
-                if (burstTime < 300) { 
+            
+            // Tuned for Bot Speeds
+            if (txs.length >= 10) {
+                const burst = txs.slice(0, 10);
+                const burstTime = Math.abs(Number(burst[0].timeStamp) - Number(burst[9].timeStamp));
+                if (burstTime < 60) { 
                     behavioralRisk = 'critical';
-                    riskFlags.push("Rapid Asset Sweep (Drainer Behavior)");
+                    riskFlags.push("Automated Asset Sweep (Drainer Behavior)");
                 }
             }
+            
+          // Tuned Phishing Hub: The "Black Hole" Heuristic
+            // Whales (like Justin Sun) receive funds from many people, but they also SEND constantly (Nonce > 2000).
+            // Scammers/Phishing Hubs receive funds from dozens of victims, but rarely send (Nonce < 20).
             const incomingTxs = txs.filter((tx) => tx.to?.toLowerCase() === rootId);
             const uniqueSenders = new Set(incomingTxs.map((tx) => tx.from?.toLowerCase())).size;
-            if (incomingTxs.length >= 8 && uniqueSenders >= 5) {
+            
+            if (incomingTxs.length >= 15 && uniqueSenders >= 10 && totalTransactions < 20) {
                 behavioralRisk = 'critical';
                 riskFlags.push("Anomalous Accumulation (Phishing/Scam Hub Signature)");
             }
+            
         }
+
+        // --- DYNAMIC LABELING LOGIC ---
+        let targetLabel = 'Standard Wallet';
+        if (behavioralRisk === 'critical') targetLabel = 'High-Risk Target';
+        if (behavioralRisk === 'warning') targetLabel = 'Monitored Entity';
+        if (knownSafeEntities.includes(rootId)) targetLabel = 'Verified Contract';
 
         nodes.push({
           id: rootId, type: 'cyber', position: { x: 50, y: 250 },
           data: { 
-            role: 'Ethereum Target', address: wallet, risk: behavioralRisk, 
-            flags: riskFlags, txCount: totalTransactions, volume: totalVolume, firstSeen: 'Mainnet'
+            role: targetLabel, 
+            address: wallet, risk: behavioralRisk, 
+            flags: riskFlags, 
+            txCount: Math.max(totalTransactions, txs.length), // <--- Fixed the "1 TX" Nonce bug!
+            volume: totalVolume, firstSeen: 'Mainnet',
+            totalFound: totalFoundCount // <--- Real count sent to frontend!
           }
         });
 
@@ -179,9 +217,20 @@ export async function GET(request: Request) {
             const row = index % 4;
             nodes.push({
               id: interacted, type: 'cyber', position: { x: 450 + (col * 350), y: 100 + (row * 150) },
-              data: { role: 'Node', address: interacted, risk: behavioralRisk === 'critical' ? 'critical' : 'warning', volume: `${(Number(tx.value) / 1e18).toFixed(4)}` }
+              data: { 
+                role: 'Connected Wallet',
+                address: interacted, 
+                risk: behavioralRisk === 'critical' ? 'warning' : 'safe', 
+                volume: `${(Number(tx.value) / 1e18).toFixed(4)}` 
+              }
             });
-            edges.push({ id: `e-eth-${tx.hash}`, source: rootId, target: interacted, animated: true, style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#f59e0b' } });
+            edges.push({ 
+              id: `e-eth-${tx.hash}`, 
+              source: rootId, 
+              target: interacted, 
+              animated: true, 
+              style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#34d399' } 
+            });
           }
         });
       }
