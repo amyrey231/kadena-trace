@@ -16,6 +16,7 @@ import {
 const CyberNode = ({ data }: { data: any }) => {
   const isCritical = data.risk === 'critical';
   const isWarning = data.risk === 'warning';
+  const hasBehavioralFlags = data.flags && data.flags.length > 0;
   
   const glowColor = isCritical ? 'shadow-rose-500/50 border-rose-500/50 bg-rose-500/5' 
                   : isWarning ? 'shadow-amber-500/50 border-amber-500/50 bg-amber-500/5' 
@@ -29,14 +30,21 @@ const CyberNode = ({ data }: { data: any }) => {
     <div className={`relative px-5 py-4 bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700 rounded-xl backdrop-blur-xl shadow-lg transition-all hover:scale-105 hover:shadow-2xl hover:${glowColor} group min-w-[240px]`}>
       <Handle type="target" position={Position.Left} className="w-2 h-2 !bg-slate-400 dark:!bg-slate-500 border-none" />
       
+      {/* 🚨 BEHAVIORAL WARNING BADGE */}
+      {hasBehavioralFlags && (
+        <div className="absolute -top-3 -right-3 bg-rose-600 text-white p-1.5 rounded-full shadow-lg animate-pulse z-50">
+          <AlertTriangle className="w-3 h-3" />
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-3 border-b border-slate-100 dark:border-slate-800 pb-2">
          <span className={`text-[9px] font-black tracking-[0.2em] uppercase ${textColor} flex items-center gap-1.5`}>
            {isCritical ? <AlertTriangle className="w-3 h-3"/> : isWarning ? <Database className="w-3 h-3"/> : <ShieldCheck className="w-3 h-3"/>}
            {data.role}
          </span>
          <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
-  {data.volume}
-</span>
+           {data.volume}
+         </span>
       </div>
       
       <div className="flex items-center gap-3">
@@ -45,7 +53,7 @@ const CyberNode = ({ data }: { data: any }) => {
         </div>
         <div>
           <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest mb-0.5">Entity Address</p>
-          <p className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200">{data.address}</p>
+          <p className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200 truncate w-32">{data.address}</p>
         </div>
       </div>
       <Handle type="source" position={Position.Right} className="w-2 h-2 !bg-slate-400 dark:!bg-slate-500 border-none" />
@@ -233,28 +241,48 @@ export default function FraudTracer() {
         )}
 
         {/* Right Panel: Entity Profiler */}
-        {selectedNode && (
-          <div className="absolute top-6 right-6 z-10 w-80 bg-white/95 dark:bg-[#080B10]/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800/80 rounded-2xl p-6 shadow-2xl flex flex-col gap-6 transition-colors duration-500 animate-in slide-in-from-right-8">
-            <div className="flex justify-between items-start">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
-                <Fingerprint className="w-3 h-3 text-emerald-500" /> Entity Profiler
-              </h2>
-              <button onClick={onPaneClick} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">✕</button>
-            </div>
+{selectedNode && (
+  <div className="absolute top-6 right-6 z-10 w-80 bg-white/95 dark:bg-[#080B10]/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800/80 rounded-2xl p-6 shadow-2xl flex flex-col gap-6 transition-colors duration-500 animate-in slide-in-from-right-8">
+    <div className="flex justify-between items-start">
+      <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+        <Fingerprint className="w-3 h-3 text-emerald-500" /> Entity Profiler
+      </h2>
+      <button onClick={onPaneClick} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">✕</button>
+    </div>
 
             <div className="text-center pb-6 border-b border-slate-100 dark:border-slate-800 transition-colors duration-500">
               <div className={`w-16 h-16 mx-auto rounded-2xl mb-4 flex items-center justify-center ${selectedNode.risk === 'critical' ? 'bg-rose-100 dark:bg-rose-500/10 text-rose-600 dark:text-rose-500' : selectedNode.risk === 'warning' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-500' : 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-500'}`}>
                 <Crosshair className="w-8 h-8" />
               </div>
+
               <h3 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight mb-1">{selectedNode.role}</h3>
               <p className="text-xs font-mono text-slate-500 bg-slate-100 dark:bg-slate-900 px-3 py-1 rounded-lg inline-block transition-colors duration-500">{selectedNode.address}</p>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">Risk Assessment</p>
-                <p className={`text-sm font-bold uppercase ${selectedNode.risk === 'critical' ? 'text-rose-600 dark:text-rose-500' : selectedNode.risk === 'warning' ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-500'}`}>{selectedNode.risk} Level</p>
+            <div className="space-y-6">
+      {/* Risk Assessment */}
+      <div>
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">Risk Assessment</p>
+        <p className={`text-sm font-bold uppercase ${selectedNode.risk === 'critical' ? 'text-rose-600 dark:text-rose-500' : selectedNode.risk === 'warning' ? 'text-amber-600 dark:text-amber-500' : 'text-emerald-600 dark:text-emerald-500'}`}>{selectedNode.risk} Level</p>
+      </div>
+
+{/* 🚨 THE BEHAVIORAL INDICATORS (CRITICAL FOR CLIENT) */}
+      {selectedNode.flags && selectedNode.flags.length > 0 && (
+        <div className="animate-in fade-in zoom-in-95 duration-500">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-rose-500 mb-2 flex items-center gap-1.5">
+            <ShieldAlert className="w-3 h-3" /> Behavioral Indicators
+          </p>
+          <div className="space-y-2">
+            {selectedNode.flags.map((flag: string, i: number) => (
+              <div key={i} className="px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg text-[10px] font-bold text-rose-600 dark:text-rose-400 leading-tight">
+                {flag}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800 transition-colors duration-500">
   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">Total Volume</p>

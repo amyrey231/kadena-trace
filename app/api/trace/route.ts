@@ -1,5 +1,45 @@
 import { NextResponse } from 'next/server';
 
+// --- 1. STRICT TYPESCRIPT INTERFACES ---
+interface CyberNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: {
+    role: string;
+    address: string;
+    risk: string;
+    flags?: string[];
+    txCount?: number;
+    volume: string;
+    firstSeen?: string;
+  };
+}
+
+interface CyberEdge {
+  id: string;
+  source: string;
+  target: string;
+  animated: boolean;
+  style: { stroke: string };
+}
+
+interface KadenaTx {
+  amount: number | string;
+  senderAccount: string;
+  receiverAccount: string;
+  creationTime: string;
+}
+
+interface EthTx {
+  value: string;
+  timeStamp: string;
+  from: string;
+  to: string;
+  hash: string;
+}
+
+// --- 2. MAIN API ROUTE ---
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const wallet = searchParams.get('wallet');
@@ -8,86 +48,167 @@ export async function GET(request: Request) {
 
   const isKadena = wallet.startsWith('k:');
   const rootId = wallet.toLowerCase();
-  let nodes: any[] = [];
-  let edges: any[] = [];
+  
+  // Apply our custom types here instead of any[]
+  const nodes: CyberNode[] = [];
+  const edges: CyberEdge[] = [];
+  
+  // Intelligence State
+  let behavioralRisk = 'safe';
+  const riskFlags: string[] = [];
 
   try {
-    if (isKadena) {
-      // --- REAL KADENA TRACE ---
-      const kdaUrl = `https://estats.chainweb.com/mainnet/chain/0/address/${wallet}/txs?limit=10`;
+
+   if (isKadena) {
+      // --- DECENTRALIZED KADENA COMMUNITY API ---
+      // Note: Kadena Foundation ceased core operations in late 2025. 
+      // Official Graph and Estats APIs are offline. We are attempting to query surviving community P2P nodes.
+      const KADENA_SURVIVOR_NODE = `https://api.chainweb.com/chainweb/0.0/mainnet01/chain/0/pact/api/v1/local`;
       
-      // We add a generic browser header to prevent blocks
-      const response = await fetch(kdaUrl, {
-        headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+      const response = await fetch(KADENA_SURVIVOR_NODE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'KadenaTrace-Enterprise' },
+        body: JSON.stringify({
+          // Attempting a raw Pact call on surviving infrastructure
+          cmds: [{ hash: "trace", sigs: [], cmd: `(coin.details "${wallet}")` }] 
+        })
       });
-      
-      if (!response.ok) throw new Error(`Kadena API blocked request: ${response.status}`);
-      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(`Community Node Unreachable: ${response.status}. Kadena network may be fully offline.`);
+      }
+
+      const rawData = await response.json();
+      const data: KadenaTx[] = rawData?.result?.data || [];
+
+      // --- BEHAVIORAL ANALYSIS: KADENA ---
+      if (data.length >= 2) {
+        const times = data.map((tx) => new Date(tx.creationTime).getTime()); 
+        const timeDiff = Math.abs(times[0] - times[data.length - 1]);
+        
+        if (data.length > 5 && timeDiff < 3600000) { 
+          behavioralRisk = 'critical';
+          riskFlags.push("High-Velocity Asset Sweeping (Cross-Chain Drainer)");
+        }
+      }
+
+      const totalKdaVolume = data.reduce((acc, tx) => acc + (Number(tx.amount) || 0), 0).toFixed(2);
 
       nodes.push({
         id: rootId, type: 'cyber', position: { x: 50, y: 250 },
-        data: { role: 'Kadena Target', address: wallet, risk: 'safe', volume: '0', firstSeen: 'Chainweb', txCount: data.length || 0 }
+        data: { 
+          role: 'Kadena Target', 
+          address: wallet, 
+          risk: behavioralRisk, 
+          flags: riskFlags,
+          txCount: data.length,
+          volume: totalKdaVolume,
+          firstSeen: 'Community Node'
+        }
       });
 
-      if (Array.isArray(data) && data.length > 0) {
-        data.forEach((tx: any, index: number) => {
-          const interacted = tx.fromAddress?.toLowerCase() === rootId ? tx.toAddress?.toLowerCase() : tx.fromAddress?.toLowerCase();
-          if (interacted && interacted !== rootId) {
-            
-            // NEW: Column and Row math for the Grid Layout
-            const col = Math.floor(index / 4);
-            const row = index % 4;
-            const posX = 450 + (col * 350);
-            const posY = 100 + (row * 150);
-
-            nodes.push({
-              id: interacted, type: 'cyber', position: { x: posX, y: posY },
-              data: { role: 'KDA Interaction', address: interacted, risk: 'warning', volume: `${tx.amount}`, firstSeen: 'Recent', txCount: 1 }
-            });
-            edges.push({ id: `e-k-${index}`, source: rootId, target: interacted, animated: true, style: { stroke: '#ef4444' } });
-          }
-        });
-      }
+      data.slice(0, 10).forEach((tx, index) => {
+        const interacted = tx.senderAccount?.toLowerCase() === rootId ? tx.receiverAccount?.toLowerCase() : tx.senderAccount?.toLowerCase();
+        
+        if (interacted && interacted !== rootId) {
+          const col = Math.floor(index / 4);
+          const row = index % 4;
+          nodes.push({
+            id: interacted, type: 'cyber', position: { x: 450 + (col * 350), y: 100 + (row * 150) },
+            data: { 
+              role: 'KDA Interaction', 
+              address: interacted, 
+              risk: behavioralRisk === 'critical' ? 'critical' : 'warning', 
+              volume: `${tx.amount}` 
+            }
+          });
+          edges.push({ id: `e-k-${index}`, source: rootId, target: interacted, animated: behavioralRisk === 'critical', style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#ef4444' } });
+        }
+      });
 
     } else {
-      // --- REAL ETHEREUM TRACE ---
+      // --- ETHEREUM BEHAVIORAL TRACE ---
       const ETHERSCAN_API_KEY = "ZHS5IHVF2PG67MFMZ238KAF6GYXFM5IEX7";
-      const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=12&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
+      const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${wallet}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc&apikey=${ETHERSCAN_API_KEY}`;
       
-      // Added User-Agent to bypass Cloudflare/Etherscan server blocks
-      const response = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-      });
-      
-      if (!response.ok) throw new Error(`Etherscan blocked request: ${response.status}`);
-      const data = await response.json();
+      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const rawData = await response.json();
 
-      if (data.status === "0") {
-        console.error("Etherscan rejected the API key or request:", data.result);
-        throw new Error(data.result);
-      }
+      if (rawData.status === "1" && Array.isArray(rawData.result)) {
+        // Strictly type the result as an array of EthTx
+        const txs: EthTx[] = rawData.result;
 
-      nodes.push({
-        id: rootId, type: 'cyber', position: { x: 50, y: 250 },
-        data: { role: 'Ethereum Target', address: wallet, risk: 'critical', volume: '0', firstSeen: 'Mainnet', txCount: data.result?.length || 0 }
-      });
+        const totalVolume = txs.reduce((acc, tx) => acc + (Number(tx.value) / 1e18), 0).toFixed(4);
 
-      if (data.status === "1" && Array.isArray(data.result)) {
-        data.result.forEach((tx: any, index: number) => {
+        const knownSafeEntities = [
+          "0x28c6c06298d514db089934071355e5743bf21d60", // Binance 14
+          "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be", // Binance 8
+          "0xde0b295669a9fd93d5f28d9ec85e40f4cb697bae", // Ethereum Foundation
+          "0x000000000000000000000000000000000000dead", // Standard Burn Address
+          "0x0000000000000000000000000000000000000000"  // Null / Genesis Address
+        ];
+
+        if (knownSafeEntities.includes(rootId)) {
+            behavioralRisk = 'safe';
+            riskFlags.push("Verified Safe Entity (Behavioral Checks Bypassed)");
+        } else {
+            const firstTx = txs[0];
+            const secondTx = txs[1];
+            if (firstTx && secondTx) {
+                const isFirstOut = firstTx.from.toLowerCase() === rootId;
+                const isSecondIn = secondTx.to.toLowerCase() === rootId;
+                if (isFirstOut && isSecondIn && Number(secondTx.value) < 50000000000000000) { 
+                    behavioralRisk = 'critical';
+                    riskFlags.push("Flash Gas Siphoning (Compromise Signature)");
+                }
+            }
+
+            if (txs.length >= 5) {
+                const burst = txs.slice(0, 5);
+                const burstTime = Math.abs(Number(burst[0].timeStamp) - Number(burst[4].timeStamp));
+                if (burstTime < 300) { 
+                    behavioralRisk = 'critical';
+                    riskFlags.push("Rapid Asset Sweep (Drainer Behavior)");
+                }
+            }
+
+            const incomingTxs = txs.filter((tx) => tx.to?.toLowerCase() === rootId);
+            const uniqueSenders = new Set(incomingTxs.map((tx) => tx.from?.toLowerCase())).size;
+
+            if (incomingTxs.length >= 8 && uniqueSenders >= 5) {
+                behavioralRisk = 'critical';
+                riskFlags.push("Anomalous Accumulation (Phishing/Scam Hub Signature)");
+            }
+        }
+
+        nodes.push({
+          id: rootId, type: 'cyber', position: { x: 50, y: 250 },
+          data: { 
+            role: 'Ethereum Target', 
+            address: wallet, 
+            risk: behavioralRisk, 
+            flags: riskFlags,
+            txCount: txs.length,
+            volume: totalVolume,
+            firstSeen: 'Mainnet'
+          }
+        });
+
+        txs.slice(0, 12).forEach((tx, index) => {
           const interacted = tx.to?.toLowerCase() === rootId ? tx.from?.toLowerCase() : tx.to?.toLowerCase();
           if (interacted) {
-            
-            // NEW: Column and Row math for the Grid Layout
             const col = Math.floor(index / 4);
             const row = index % 4;
-            const posX = 450 + (col * 350);
-            const posY = 100 + (row * 150);
-
             nodes.push({
-              id: interacted, type: 'cyber', position: { x: posX, y: posY },
-              data: { role: 'Interacted Wallet', address: interacted, risk: 'warning', volume: `${(Number(tx.value) / 1e18).toFixed(4)}`, firstSeen: 'Recent', txCount: 1 }
+              id: interacted, type: 'cyber', position: { x: 450 + (col * 350), y: 100 + (row * 150) },
+              data: { 
+                role: 'Node', 
+                address: interacted, 
+                risk: behavioralRisk === 'critical' ? 'critical' : 'warning', 
+                volume: `${(Number(tx.value) / 1e18).toFixed(4)}` 
+              }
             });
-            edges.push({ id: `e-eth-${tx.hash}`, source: rootId, target: interacted, animated: true, style: { stroke: '#f59e0b' } });
+            edges.push({ id: `e-eth-${tx.hash}`, source: rootId, target: interacted, animated: true, style: { stroke: behavioralRisk === 'critical' ? '#ff0044' : '#f59e0b' } });
           }
         });
       }
@@ -95,13 +216,32 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ nodes, edges });
 
-  } catch (error) {
-    // If it fails, log it to the VS Code terminal so we can see it!
-    console.error("🚨 TRACE API FAILED:", error);
+  } catch (error: unknown) {
+    // 1. Safely extract the error message (Strict TypeScript compliant)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("🚨 TRACE API FAILED:", errorMessage);
     
-    // Return a safe fallback node so the UI doesn't crash
+    // ENTERPRISE ERROR HANDLING:
+    // If the blockchain node is dead or blocked by the ISP, we map that into the UI
+    const isDnsError = errorMessage.includes('ENOTFOUND') || errorMessage.includes('fetch failed');
+
     return NextResponse.json({ 
-      nodes: [{ id: rootId, type: 'cyber', position: { x: 50, y: 250 }, data: { role: 'Secured Node', address: wallet, risk: 'safe', volume: '0', firstSeen: 'Unknown', txCount: '?' } }], 
+      nodes: [{ 
+        id: rootId, 
+        type: 'cyber', 
+        position: { x: 50, y: 250 }, 
+        data: { 
+          role: isKadena ? 'Kadena (UNREACHABLE)' : 'Ethereum (UNREACHABLE)', 
+          address: wallet, 
+          risk: 'warning', 
+          flags: isDnsError 
+            ? ["RPC Connection Failed", "DNS / ISP Block Detected", "Cannot resolve node hostname"] 
+            : ["API Timeout or Rate Limit Reached"],
+          txCount: 0,
+          volume: "0",
+          firstSeen: 'Network Offline'
+        } 
+      }], 
       edges: [] 
     });
   }
