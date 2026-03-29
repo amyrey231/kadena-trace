@@ -219,7 +219,11 @@ export default function FraudTracer() {
                </div>
                <div className="flex justify-between items-center text-xs font-mono border-b border-slate-100 dark:border-slate-800 pb-3 transition-colors duration-500">
                  <span className="text-slate-500">Cross-Chain</span>
-                 <span className="text-amber-600 dark:text-amber-400 font-bold">{nodes.length > 3 ? 'Binance Bridge' : 'Kadena Native'}</span>
+                 <span className="text-amber-600 dark:text-amber-400 font-bold">
+  {searchQuery.startsWith('k:') 
+    ? 'Kadena Native' 
+    : (nodes.length > 3 ? 'Binance Bridge' : 'Ethereum Mainnet')}
+</span>
                </div>
                <div className="flex justify-between items-center text-xs font-mono">
                  <span className="text-slate-500">Pact Anchoring</span>
@@ -405,7 +409,9 @@ export default function FraudTracer() {
                </div>
                <div className="flex justify-between items-center text-[10px] font-mono border-b border-slate-100 dark:border-slate-800 pb-2">
                  <span className="text-slate-500">Cross-Chain</span>
-                 <span className="text-amber-600 dark:text-amber-400 font-bold">{nodes.length > 3 ? 'Binance Bridge' : 'Kadena Native'}</span>
+                 <span className="text-amber-600 dark:text-amber-400 font-bold">
+  {searchQuery.startsWith('k:') ? 'Kadena Native' : nodes.length > 3 ? 'Binance Bridge' : 'Ethereum Mainnet'}
+</span>
                </div>
                <div className="flex justify-between items-center text-[10px] font-mono">
                  <span className="text-slate-500">Pact Anchoring</span>
@@ -514,7 +520,11 @@ export default function FraudTracer() {
             colorMode={theme}
           >
             <Background color={theme === 'dark' ? '#1e293b' : '#cbd5e1'} gap={25} size={1} />
-            <Controls className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 fill-slate-600 dark:fill-slate-400 shadow-xl !bottom-[340px] !right-4" showInteractive={false} />
+           <Controls 
+  className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 fill-slate-600 dark:fill-slate-400 shadow-xl !bottom-[300px] !right-4 scale-[0.65] origin-bottom-right opacity-80" 
+  showInteractive={false} 
+  showFitView={false}
+/>
           </ReactFlow>
         </div>
       </main>
